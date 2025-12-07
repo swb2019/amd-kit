@@ -1,0 +1,50 @@
+﻿name: AMD Auto-merge (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        type: number
+        required: true
+      head_ref:
+        type: string
+        required: true
+      is_draft:
+        type: boolean
+        required: true
+      allowed_head_prefix:
+        type: string
+        required: false
+        default: "cursor/"
+      forbidden_regex:
+        type: string
+        required: false
+        default: "^(\\.github/workflows/|\\.cursor/rules/)"
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  enable:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Enable auto-merge if eligible
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr_number }}
+          HEAD_REF: ${{ inputs.head_ref }}
+          IS_DRAFT: ${{ inputs.is_draft }}
+          ALLOWED_PREFIX: ${{ inputs.allowed_head_prefix }}
+          FORBIDDEN_REGEX: ${{ inputs.forbidden_regex }}
+        run: |
+          if ($env:IS_DRAFT -eq "True" -or $env:IS_DRAFT -eq "true") { exit 0 }
+          if (-not $env:HEAD_REF.StartsWith($env:ALLOWED_PREFIX)) { exit 0 }
+
+          $pr = gh pr view $env:PR --json files | ConvertFrom-Json
+          $paths = @($pr.files | ForEach-Object { $_.path })
+          $blocked = @($paths | Where-Object { $_ -match $env:FORBIDDEN_REGEX })
+          if ($blocked.Count -gt 0) { exit 0 }
+
+          gh pr merge $env:PR --auto --squash --delete-branch

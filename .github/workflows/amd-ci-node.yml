@@ -1,0 +1,49 @@
+﻿name: AMD CI (Reusable / Node)
+
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        type: string
+        required: false
+        default: "20"
+      working_directory:
+        type: string
+        required: false
+        default: "."
+      install_cmd:
+        type: string
+        required: false
+        default: "pnpm install --frozen-lockfile"
+      test_cmd:
+        type: string
+        required: false
+        default: "pnpm test"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: pnpm
+          cache-dependency-path: ${{ inputs.working_directory }}/pnpm-lock.yaml
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install
+        working-directory: ${{ inputs.working_directory }}
+        run: ${{ inputs.install_cmd }}
+
+      - name: Test
+        working-directory: ${{ inputs.working_directory }}
+        run: ${{ inputs.test_cmd }}

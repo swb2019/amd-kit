@@ -1,0 +1,86 @@
+﻿name: AMD Heal CI (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      base_ref:
+        type: string
+        required: false
+        default: "main"
+      head_sha:
+        type: string
+        required: true
+      run_url:
+        type: string
+        required: true
+      branch_prefix:
+        type: string
+        required: false
+        default: "cursor/autofix-ci-"
+      model:
+        type: string
+        required: false
+        default: ""
+      install_cmd:
+        type: string
+        required: false
+        default: "pnpm install --frozen-lockfile"
+      test_cmd:
+        type: string
+        required: false
+        default: "pnpm test"
+    secrets:
+      CURSOR_API_KEY:
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  launch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Launch Cursor Background Agent (fix CI, creates PR)
+        shell: pwsh
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          BASE_REF: ${{ inputs.base_ref }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          RUN_URL: ${{ inputs.run_url }}
+          BRANCH_PREFIX: ${{ inputs.branch_prefix }}
+          MODEL: ${{ inputs.model }}
+          INSTALL_CMD: ${{ inputs.install_cmd }}
+          TEST_CMD: ${{ inputs.test_cmd }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          $headers = @{ Authorization="Bearer $env:CURSOR_API_KEY"; "Content-Type"="application/json" }
+          $repoUrl = "https://github.com/$env:GITHUB_REPOSITORY"
+          $short = $env:HEAD_SHA.Substring(0,7)
+          $branch = "$env:BRANCH_PREFIX$short"
+
+          $prompt = @"
+You are an autonomous CI-fix agent.
+
+Goal: fix failing CI on $env:HEAD_SHA
+Run URL: $env:RUN_URL
+
+Hard rules:
+- Do NOT modify .github/workflows/** or .cursor/rules/**.
+- Minimal change to make tests pass.
+
+Commands:
+- Install: $env:INSTALL_CMD
+- Test:    $env:TEST_CMD
+"@
+
+          $body = @{
+            prompt = @{ text = $prompt }
+            source = @{ repository = $repoUrl; ref = $env:BASE_REF }
+            target = @{ autoCreatePr = $true; branchName = $branch }
+          }
+          if ($env:MODEL -and $env:MODEL.Trim()) { $body.model = $env:MODEL.Trim() }
+
+          $json = $body | ConvertTo-Json -Depth 50
+          Invoke-RestMethod -Method Post -Uri "https://api.cursor.com/v0/agents" -Headers $headers -Body $json | Out-String | Write-Host
