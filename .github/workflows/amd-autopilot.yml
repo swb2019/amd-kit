@@ -39,6 +39,7 @@ jobs:
   launch:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+
     steps:
       - name: Skip if an autopilot PR is already open
         shell: pwsh
@@ -74,30 +75,35 @@ jobs:
           $repoUrl = "https://github.com/$env:GITHUB_REPOSITORY"
           $branch  = "$env:BRANCH_PREFIX$env:GITHUB_RUN_ID"
 
-          $prompt = @"
-You are an autonomous software engineer and architect.
-
-Hard rules:
-- Do NOT modify .github/workflows/** or .cursor/rules/**.
-- Work in small commits.
-- Prefer adding/expanding tests to prove behavior.
-- If blocked, write a clear note to ai/AUTOPILOT_LOG.md and stop.
-
-Process:
-1) Read ai/PRODUCT.md, ai/BACKLOG.md, ai/AUTOPILOT.md.
-2) Deliver exactly ONE backlog item as a PR.
-3) Run:
-   Install: $env:INSTALL_CMD
-   Test:    $env:TEST_CMD
-4) Update ai/AUTOPILOT_LOG.md.
-"@
+          $prompt = @(
+            "You are an autonomous software engineer and architect."
+            ""
+            "Hard rules:"
+            "- Do NOT modify .github/workflows/** or .cursor/rules/**."
+            "- Work in small commits."
+            "- Prefer adding/expanding tests to prove behavior."
+            "- If blocked, write a clear note to ai/AUTOPILOT_LOG.md and stop."
+            ""
+            "Process:"
+            "1) Read ai/PRODUCT.md, ai/BACKLOG.md, ai/AUTOPILOT.md."
+            "2) Deliver exactly ONE backlog item as a PR."
+            "3) Run:"
+            ("   Install: {0}" -f $env:INSTALL_CMD)
+            ("   Test: {0}" -f $env:TEST_CMD)
+            "4) Update ai/AUTOPILOT_LOG.md."
+          ) -join "`n"
 
           $body = @{
-            prompt = @{ text = $prompt }
-            source = @{ repository = $repoUrl; ref = $env:BASE_REF }
-            target = @{ autoCreatePr = $true; branchName = $branch }
+            prompt  = @{ text = $prompt }
+            source  = @{ repository = $repoUrl; ref = $env:BASE_REF }
+            target  = @{ autoCreatePr = $true; branchName = $branch }
           }
-          if ($env:MODEL -and $env:MODEL.Trim()) { $body.model = $env:MODEL.Trim() }
+
+          if ($env:MODEL -and $env:MODEL.Trim()) {
+            $body.model = $env:MODEL.Trim()
+          }
 
           $json = $body | ConvertTo-Json -Depth 50
-          Invoke-RestMethod -Method Post -Uri "https://api.cursor.com/v0/agents" -Headers $headers -Body $json | Out-String | Write-Host
+
+          Invoke-RestMethod -Method Post -Uri "https://api.cursor.com/v0/agents" -Headers $headers -Body $json |
+            ConvertTo-Json -Depth 20 | Write-Host
