@@ -35,6 +35,51 @@ jobs:
   launch:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    steps:      - name: Skip if an autopilot PR is already open
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH_PREFIX: ${{ inputs.branch_prefix }}
+          REPO: ${{ github.repository }}
+        run: |
+          $prs = gh api "repos/$env:REPO/pulls?state=open&per_page=100" | ConvertFrom-Json
+          $open = @($prs | Where-Object { name: AMD Autopilot (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      base_ref:
+        type: string
+        required: false
+        default: "main"
+      branch_prefix:
+        type: string
+        required: false
+        default: "cursor/autopilot-"
+      model:
+        type: string
+        required: false
+        default: ""
+      install_cmd:
+        type: string
+        required: false
+        default: "pnpm install --frozen-lockfile"
+      test_cmd:
+        type: string
+        required: false
+        default: "pnpm test"
+    secrets:
+      CURSOR_API_KEY:
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  launch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Skip if an autopilot PR is already open
         shell: pwsh
@@ -91,3 +136,55 @@ Create a PR to the default branch.
 
           $json = $body | ConvertTo-Json -Depth 50
           Invoke-RestMethod -Method Post -Uri "https://api.cursor.com/v0/agents" -Headers $headers -Body $json | Out-String | Write-Host
+.head.ref -like "$env:BRANCH_PREFIX*" })
+          if ($open.Count -gt 0) {
+            Write-Host "Open autopilot PR already exists. Skipping."
+            exit 0
+          }
+
+      - name: Launch Cursor Background Agent (creates PR)
+        shell: pwsh
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          BASE_REF: ${{ inputs.base_ref }}
+          BRANCH_PREFIX: ${{ inputs.branch_prefix }}
+          MODEL: ${{ inputs.model }}
+          INSTALL_CMD: ${{ inputs.install_cmd }}
+          TEST_CMD: ${{ inputs.test_cmd }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: |
+          $headers = @{ Authorization="Bearer $env:CURSOR_API_KEY"; "Content-Type"="application/json" }
+          $repoUrl  = "https://github.com/$env:GITHUB_REPOSITORY"
+          $branch   = "$env:BRANCH_PREFIX$env:GITHUB_RUN_ID"
+
+          $prompt = @"
+You are an autonomous software engineer and architect.
+
+Hard rules:
+- Do NOT modify .github/workflows/** or .cursor/rules/**.
+- Work in small commits.
+- Prefer adding/expanding tests to prove behavior.
+- If blocked, write a clear note to ai/AUTOPILOT_LOG.md and stop.
+
+Process:
+1) Read ai/PRODUCT.md and ai/AUTOPILOT.md.
+2) Deliver exactly ONE module capsule (SPEC+CONTRACT+code+tests+docs).
+3) Run:
+   Install: $env:INSTALL_CMD
+   Test:    $env:TEST_CMD
+4) Update ai/AUTOPILOT_LOG.md.
+
+Create a PR to the default branch.
+"@
+
+          $body = @{
+            prompt = @{ text = $prompt }
+            source = @{ repository = $repoUrl; ref = $env:BASE_REF }
+            target = @{ autoCreatePr = $true; branchName = $branch }
+          }
+          if ($env:MODEL -and $env:MODEL.Trim()) { $body.model = $env:MODEL.Trim() }
+
+          $json = $body | ConvertTo-Json -Depth 50
+          Invoke-RestMethod -Method Post -Uri "https://api.cursor.com/v0/agents" -Headers $headers -Body $json | Out-String | Write-Host
+
