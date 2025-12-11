@@ -39,7 +39,10 @@ jobs:
           ALLOWED_PREFIX: ${{ inputs.allowed_head_prefix }}
           FORBIDDEN_REGEX: ${{ inputs.forbidden_regex }}
         run: |
-          if ($env:IS_DRAFT -eq "True" -or $env:IS_DRAFT -eq "true") { exit 0 }
+          if ($env:IS_DRAFT -eq "True" -or $env:IS_DRAFT -eq "true") {
+            gh pr ready $env:PR --repo $env:GITHUB_REPOSITORY
+            exit 0
+          }
           if (-not $env:HEAD_REF.StartsWith($env:ALLOWED_PREFIX)) { exit 0 }
 
           $pr = gh pr view $env:PR --json files | ConvertFrom-Json
@@ -48,3 +51,4 @@ jobs:
           if ($blocked.Count -gt 0) { exit 0 }
 
           gh pr merge $env:PR --auto --squash --delete-branch
+
