@@ -1,4 +1,4 @@
-﻿name: AMD Security (Reusable)
+name: AMD Security (Reusable)
 
 on:
   workflow_call:
